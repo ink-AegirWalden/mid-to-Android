@@ -35,9 +35,20 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ContextMenu.ContextMenuInfo;
+import android.view.inputmethod.EditorInfo;
 import android.widget.AdapterView;
+import android.widget.ArrayAdapter;
 import android.widget.ListView;
+import android.widget.SearchView;
 import android.widget.SimpleCursorAdapter;
+import android.widget.Spinner;
+import android.widget.TextView;
+import android.content.SharedPreferences;
+
+
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 
 /**
@@ -61,10 +72,29 @@ public class NotesList extends ListActivity {
     private static final String[] PROJECTION = new String[] {
             NotePad.Notes._ID, // 0
             NotePad.Notes.COLUMN_NAME_TITLE, // 1
+            NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE, // 2 最后修改时间
+            NotePad.Notes.COLUMN_NAME_CATEGORY // 3 分类
     };
 
     /** The index of the title column */
     private static final int COLUMN_INDEX_TITLE = 1;
+
+    //新增修改时间字段的索引
+    private static final int COLUMN_INDEX_MODIFY_DATE = 2;
+    //新增分类字段的索引
+    private static final int COLUMN_INDEX_CATEGORY = 3;
+
+    //新增：搜索关键词 + 适配器全局引用
+    private String mSearchKeyword = "";
+    private SimpleCursorAdapter mAdapter;
+    
+    //新增：分类过滤相关
+    private String mSelectedCategory = "";
+    private Spinner mCategorySpinner;
+    // 新增：用于保存自定义分类的SharedPreferences
+    private SharedPreferences mSharedPreferences;
+    private static final String PREFS_NAME = "NotePadPrefs";
+    private static final String KEY_CATEGORIES = "categories";
 
     /**
      * onCreate is called when Android starts this Activity from scratch.
@@ -75,6 +105,9 @@ public class NotesList extends ListActivity {
 
         // The user does not need to hold down the key to use menu shortcuts.
         setDefaultKeyMode(DEFAULT_KEYS_SHORTCUT);
+
+        // 关键修改1：替换默认布局为带搜索框的布局
+        setContentView(R.layout.notes_list);
 
         /* If no data is given in the Intent that started this Activity, then this Activity
          * was started when the intent filter matched a MAIN action. We should use the default
@@ -96,46 +129,207 @@ public class NotesList extends ListActivity {
          */
         getListView().setOnCreateContextMenuListener(this);
 
-        /* Performs a managed query. The Activity handles closing and requerying the cursor
-         * when needed.
-         *
-         * Please see the introductory note about performing provider operations on the UI thread.
-         */
+        // 关键修改2：初始化搜索框
+        initSearchView();
+
+        // 关键修改3：初始化列表（支持搜索过滤）
+        updateNoteList(mSearchKeyword);
+
+        // 关键修改4：设置无结果提示
+        getListView().setEmptyView(findViewById(R.id.empty_view));
+        
+        // 新增：初始化分类过滤Spinner
+        initCategoryFilter();
+    }
+
+    /**
+     * 新增方法：初始化搜索框，监听输入事件
+     */
+    private void initSearchView() {
+        SearchView searchView = (SearchView) findViewById(R.id.note_search_view);
+        // 禁用搜索按钮，仅实时过滤
+        searchView.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        searchView.setSubmitButtonEnabled(false);
+        // 展开搜索框（默认不折叠）
+        searchView.setIconifiedByDefault(false);
+
+        // 监听搜索文本变化
+        searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
+            @Override
+            public boolean onQueryTextSubmit(String query) {
+                return false; // 无需处理提交，实时过滤
+            }
+
+            @Override
+            public boolean onQueryTextChange(String newText) {
+                // 保存关键词并更新列表
+                mSearchKeyword = newText.trim();
+                updateNoteList(mSearchKeyword);
+                return true;
+            }
+        });
+    }
+
+    /**
+     * 新增方法：初始化分类过滤Spinner
+     */
+    private void initCategoryFilter() {
+        mCategorySpinner = (Spinner) findViewById(R.id.category_filter_spinner);
+        // 初始化SharedPreferences
+        mSharedPreferences = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
+        
+        // 加载分类列表（基础分类 + 自定义分类）
+        loadCategories();
+        
+        // 设置选择监听器
+        mCategorySpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                String selectedItem = (String) parent.getItemAtPosition(position);
+                if (getString(R.string.category_all).equals(selectedItem)) {
+                    mSelectedCategory = "";
+                } else {
+                    mSelectedCategory = selectedItem;
+                }
+                // 更新列表
+                updateNoteList(mSearchKeyword);
+            }
+            
+            @Override
+            public void onNothingSelected(AdapterView<?> parent) {
+                // 不做任何操作
+            }
+        });
+    }
+    
+    /**
+     * 新增方法：根据搜索关键词和分类更新笔记列表
+     * @param keyword 搜索关键词（空则显示全部）
+     */
+    /**
+     * 加载分类列表（基础分类 + 自定义分类）
+     */
+    private void loadCategories() {
+        // 基础分类列表（使用资源字符串保持一致性）
+        String[] baseCategories = {
+            getString(R.string.category_all),
+            getString(R.string.category_work),
+            getString(R.string.category_personal),
+            getString(R.string.category_study)
+        };
+        
+        // 获取保存的自定义分类
+        String savedCategories = mSharedPreferences.getString(KEY_CATEGORIES, "");
+        
+        // 合并分类列表
+        java.util.List<String> categoriesList = new java.util.ArrayList<>();
+        java.util.Collections.addAll(categoriesList, baseCategories);
+        
+        if (!savedCategories.isEmpty()) {
+            String[] customCategories = savedCategories.split(";" + System.lineSeparator());
+            for (String category : customCategories) {
+                if (!category.trim().isEmpty() && !categoriesList.contains(category.trim())) {
+                    categoriesList.add(category.trim());
+                }
+            }
+        }
+        
+        // 创建适配器
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(
+                this, android.R.layout.simple_spinner_item, categoriesList);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        
+        // 设置适配器
+        mCategorySpinner.setAdapter(adapter);
+    }
+    
+    /**
+     * 更新笔记列表
+     * @param keyword 搜索关键词（空则显示全部）
+     */
+    private void updateNoteList(String keyword) {
+        // 构建搜索条件：模糊匹配标题 + 分类过滤
+        String selection = null;
+        String[] selectionArgs = null;
+        
+        // 分类过滤条件
+        if (!mSelectedCategory.isEmpty()) {
+            selection = NotePad.Notes.COLUMN_NAME_CATEGORY + " = ?";
+            selectionArgs = new String[]{mSelectedCategory};
+        }
+        
+        // 搜索关键词条件
+        if (!keyword.isEmpty()) {
+            if (selection != null) {
+                // 如果已有分类条件，添加AND连接
+                selection += " AND " + NotePad.Notes.COLUMN_NAME_TITLE + " LIKE ?";
+                // 扩展参数数组
+                String[] newSelectionArgs = new String[selectionArgs.length + 1];
+                System.arraycopy(selectionArgs, 0, newSelectionArgs, 0, selectionArgs.length);
+                newSelectionArgs[selectionArgs.length] = "%" + keyword + "%";
+                selectionArgs = newSelectionArgs;
+            } else {
+                // 只有搜索条件
+                selection = NotePad.Notes.COLUMN_NAME_TITLE + " LIKE ?";
+                selectionArgs = new String[]{"%" + keyword + "%"};
+            }
+        }
+
+        // 执行查询（替换原固定查询）
         Cursor cursor = managedQuery(
-            getIntent().getData(),            // Use the default content URI for the provider.
-            PROJECTION,                       // Return the note ID and title for each note.
-            null,                             // No where clause, return all records.
-            null,                             // No where clause, therefore no where column values.
-            NotePad.Notes.DEFAULT_SORT_ORDER  // Use the default sort order.
+                getIntent().getData(),            // 数据源URI
+                PROJECTION,                       // 查询字段
+                selection,                        // 筛选条件（搜索关键词 + 分类）
+                selectionArgs,                    // 筛选参数
+                NotePad.Notes.DEFAULT_SORT_ORDER  // 排序规则
         );
 
-        /*
-         * The following two arrays create a "map" between columns in the cursor and view IDs
-         * for items in the ListView. Each element in the dataColumns array represents
-         * a column name; each element in the viewID array represents the ID of a View.
-         * The SimpleCursorAdapter maps them in ascending order to determine where each column
-         * value will appear in the ListView.
-         */
+        // 初始化/更新适配器
+        if (mAdapter == null) {
+            // 数据列与视图ID映射
+            String[] dataColumns = {
+                    NotePad.Notes.COLUMN_NAME_TITLE,
+                    NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE
+            };
+            int[] viewIDs = {
+                    android.R.id.text1,
+                    R.id.note_modify_time
+            };
 
-        // The names of the cursor columns to display in the view, initialized to the title column
-        String[] dataColumns = { NotePad.Notes.COLUMN_NAME_TITLE } ;
-
-        // The view IDs that will display the cursor columns, initialized to the TextView in
-        // noteslist_item.xml
-        int[] viewIDs = { android.R.id.text1 };
-
-        // Creates the backing adapter for the ListView.
-        SimpleCursorAdapter adapter
-            = new SimpleCursorAdapter(
-                      this,                             // The Context for the ListView
-                      R.layout.noteslist_item,          // Points to the XML for a list item
-                      cursor,                           // The cursor to get items from
-                      dataColumns,
-                      viewIDs
-              );
-
-        // Sets the ListView's adapter to be the cursor adapter that was just created.
-        setListAdapter(adapter);
+            // 自定义适配器格式化时间
+            mAdapter = new SimpleCursorAdapter(
+                    this,
+                    R.layout.noteslist_item,
+                    cursor,
+                    dataColumns,
+                    viewIDs
+            ) {
+                @Override
+                public void bindView(View view, Context context, Cursor cursor) {
+                    super.bindView(view, context, cursor);
+                    // 格式化修改时间
+                    long modifyTime = cursor.getLong(COLUMN_INDEX_MODIFY_DATE);
+                    String timeStr = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                            .format(new Date(modifyTime));
+                    TextView timeTv = (TextView) view.findViewById(R.id.note_modify_time);
+                    timeTv.setText(timeStr);
+                    
+                    // 显示分类信息
+                    String category = cursor.getString(COLUMN_INDEX_CATEGORY);
+                    TextView categoryTv = (TextView) view.findViewById(R.id.note_category);
+                    if (category != null && !category.isEmpty()) {
+                        categoryTv.setText(category);
+                        categoryTv.setVisibility(View.VISIBLE);
+                    } else {
+                        categoryTv.setVisibility(View.GONE);
+                    }
+                }
+            };
+            setListAdapter(mAdapter);
+        } else {
+            // 更新适配器数据（避免重复创建）
+            mAdapter.changeCursor(cursor);
+        }
     }
 
     /**
@@ -176,7 +370,6 @@ public class NotesList extends ListActivity {
         // The paste menu item is enabled if there is data on the clipboard.
         ClipboardManager clipboard = (ClipboardManager)
                 getSystemService(Context.CLIPBOARD_SERVICE);
-
 
         MenuItem mPasteItem = menu.findItem(R.id.menu_paste);
 
@@ -224,26 +417,26 @@ public class NotesList extends ListActivity {
              * Add alternatives to the menu
              */
             menu.addIntentOptions(
-                Menu.CATEGORY_ALTERNATIVE,  // Add the Intents as options in the alternatives group.
-                Menu.NONE,                  // A unique item ID is not required.
-                Menu.NONE,                  // The alternatives don't need to be in order.
-                null,                       // The caller's name is not excluded from the group.
-                specifics,                  // These specific options must appear first.
-                intent,                     // These Intent objects map to the options in specifics.
-                Menu.NONE,                  // No flags are required.
-                items                       // The menu items generated from the specifics-to-
-                                            // Intents mapping
+                    Menu.CATEGORY_ALTERNATIVE,  // Add the Intents as options in the alternatives group.
+                    Menu.NONE,                  // A unique item ID is not required.
+                    Menu.NONE,                  // The alternatives don't need to be in order.
+                    null,                       // The caller's name is not excluded from the group.
+                    specifics,                  // These specific options must appear first.
+                    intent,                     // These Intent objects map to the options in specifics.
+                    Menu.NONE,                  // No flags are required.
+                    items                       // The menu items generated from the specifics-to-
+                    // Intents mapping
             );
-                // If the Edit menu item exists, adds shortcuts for it.
-                if (items[0] != null) {
+            // If the Edit menu item exists, adds shortcuts for it.
+            if (items[0] != null) {
 
-                    // Sets the Edit menu item shortcut to numeric "1", letter "e"
-                    items[0].setShortcut('1', 'e');
-                }
-            } else {
-                // If the list is empty, removes any existing alternative actions from the menu
-                menu.removeGroup(Menu.CATEGORY_ALTERNATIVE);
+                // Sets the Edit menu item shortcut to numeric "1", letter "e"
+                items[0].setShortcut('1', 'e');
             }
+        } else {
+            // If the list is empty, removes any existing alternative actions from the menu
+            menu.removeGroup(Menu.CATEGORY_ALTERNATIVE);
+        }
 
         // Displays the menu
         return true;
@@ -339,8 +532,8 @@ public class NotesList extends ListActivity {
         // as well.  This does a query on the system for any activities that
         // implement the ALTERNATIVE_ACTION for our data, adding a menu item
         // for each one that is found.
-        Intent intent = new Intent(null, Uri.withAppendedPath(getIntent().getData(), 
-                                        Integer.toString((int) info.id) ));
+        Intent intent = new Intent(null, Uri.withAppendedPath(getIntent().getData(),
+                Integer.toString((int) info.id)));
         intent.addCategory(Intent.CATEGORY_ALTERNATIVE);
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         menu.addIntentOptions(Menu.CATEGORY_ALTERNATIVE, 0, 0,

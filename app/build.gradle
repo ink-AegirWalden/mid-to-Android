@@ -3,7 +3,6 @@ apply plugin: 'com.android.application'
 android {
     namespace 'com.example.android.notepad'
     compileSdkVersion 23
-    buildToolsVersion "23.0.1"
 
     defaultConfig {
         applicationId "com.example.android.notepad"
@@ -21,3 +20,4 @@ android {
         }
     }
 }
+

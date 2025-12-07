@@ -40,4 +40,13 @@
     <string name="error_title">Error</string>
     <string name="error_message">Error loading note</string>
     <string name="nothing_to_save">There is nothing to save</string>
+    <string name="titleAndThings">搜索笔记标题/内容</string>
+    <string name="doNotHaveNote">未找到匹配的笔记</string>
+    <string name="addFujian">添加</string>
+    <string name="add">添加</string>
+    <string name="category_filter">选择分类</string>
+    <string name="category_all">全部</string>
+    <string name="category_work">工作</string>
+    <string name="category_personal">个人</string>
+    <string name="category_study">学习</string>
 </resources>

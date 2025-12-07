@@ -39,6 +39,7 @@ import android.provider.LiveFolders;
 import android.text.TextUtils;
 import android.util.Log;
 
+import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -63,12 +64,16 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
     /**
      * The database version
      */
-    private static final int DATABASE_VERSION = 2;
+    //修改版本3->4
+    private static final int DATABASE_VERSION = 4;
 
     /**
      * A projection map used to select columns from the database
      */
     private static HashMap<String, String> sNotesProjectionMap;
+
+    //附件表的投影映射
+    private static HashMap<String, String> sAttachmentProjectionMap;
 
     /**
      * A projection map used to select columns from the database
@@ -98,6 +103,12 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
 
     // The incoming URI matches the Live Folder URI pattern
     private static final int LIVE_FOLDER_NOTES = 3;
+
+    //新增附件表的URI匹配码
+    private static final int ATTACHMENTS=4;
+    private static final int ATTACHMENT_ID=5;
+    private static final int NOTE_ATTACHMENTS=6;
+
 
     /**
      * A UriMatcher instance
@@ -130,6 +141,14 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
         // live folder operation
         sUriMatcher.addURI(NotePad.AUTHORITY, "live_folders/notes", LIVE_FOLDER_NOTES);
 
+
+        //新增附件表URI匹配规则
+        sUriMatcher.addURI(NotePad.AUTHORITY, "attachments", ATTACHMENTS); // 匹配 content://.../attachments
+        sUriMatcher.addURI(NotePad.AUTHORITY, "attachments/#", ATTACHMENT_ID); // 匹配 content://.../attachments/1
+        sUriMatcher.addURI(NotePad.AUTHORITY, "notes/#/attachments", NOTE_ATTACHMENTS); // 匹配 content://.../notes/1/attachments
+
+
+
         /*
          * Creates and initializes a projection map that returns all columns
          */
@@ -155,6 +174,9 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
         sNotesProjectionMap.put(
                 NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE,
                 NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE);
+        
+        // Maps "category" to "category"
+        sNotesProjectionMap.put(NotePad.Notes.COLUMN_NAME_CATEGORY, NotePad.Notes.COLUMN_NAME_CATEGORY);
 
         /*
          * Creates an initializes a projection map for handling Live Folders
@@ -169,6 +191,18 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
         // Maps "NAME" to "title AS NAME"
         sLiveFolderProjectionMap.put(LiveFolders.NAME, NotePad.Notes.COLUMN_NAME_TITLE + " AS " +
             LiveFolders.NAME);
+
+
+
+        //新增附件表投影映射
+
+        sAttachmentProjectionMap = new HashMap<>();
+        sAttachmentProjectionMap.put(NotePad.Attachments._ID, NotePad.Attachments._ID);
+        sAttachmentProjectionMap.put(NotePad.Attachments.COLUMN_NAME_NOTE_ID, NotePad.Attachments.COLUMN_NAME_NOTE_ID);
+        sAttachmentProjectionMap.put(NotePad.Attachments.COLUMN_NAME_FILE_TYPE, NotePad.Attachments.COLUMN_NAME_FILE_TYPE);
+        sAttachmentProjectionMap.put(NotePad.Attachments.COLUMN_NAME_FILE_PATH, NotePad.Attachments.COLUMN_NAME_FILE_PATH);
+        sAttachmentProjectionMap.put(NotePad.Attachments.COLUMN_NAME_FILE_NAME, NotePad.Attachments.COLUMN_NAME_FILE_NAME);
+        sAttachmentProjectionMap.put(NotePad.Attachments.COLUMN_NAME_FILE_SIZE, NotePad.Attachments.COLUMN_NAME_FILE_SIZE);
     }
 
     /**
@@ -191,12 +225,27 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
         */
        @Override
        public void onCreate(SQLiteDatabase db) {
-           db.execSQL("CREATE TABLE " + NotePad.Notes.TABLE_NAME + " ("
-                   + NotePad.Notes._ID + " INTEGER PRIMARY KEY,"
-                   + NotePad.Notes.COLUMN_NAME_TITLE + " TEXT,"
-                   + NotePad.Notes.COLUMN_NAME_NOTE + " TEXT,"
-                   + NotePad.Notes.COLUMN_NAME_CREATE_DATE + " INTEGER,"
-                   + NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE + " INTEGER"
+           db.execSQL("CREATE TABLE " + NotePad.Notes.TABLE_NAME + " (" 
+                   + NotePad.Notes._ID + " INTEGER PRIMARY KEY," 
+                   + NotePad.Notes.COLUMN_NAME_TITLE + " TEXT," 
+                   + NotePad.Notes.COLUMN_NAME_NOTE + " TEXT," 
+                   + NotePad.Notes.COLUMN_NAME_CREATE_DATE + " INTEGER," 
+                   + NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE + " INTEGER," 
+                   + NotePad.Notes.COLUMN_NAME_CATEGORY + " TEXT"
+                   + ");");
+
+           //创建附件表
+           db.execSQL("CREATE TABLE " + NotePad.Attachments.TABLE_NAME + " ("
+                   + NotePad.Attachments._ID + " INTEGER PRIMARY KEY AUTOINCREMENT,"
+                   + NotePad.Attachments.COLUMN_NAME_NOTE_ID + " INTEGER NOT NULL," // 关联笔记ID（外键）
+                   + NotePad.Attachments.COLUMN_NAME_FILE_TYPE + " TEXT NOT NULL," // 文件类型（image/audio/video）
+                   + NotePad.Attachments.COLUMN_NAME_FILE_PATH + " TEXT NOT NULL," // 存储路径（应用私有目录）
+                   + NotePad.Attachments.COLUMN_NAME_FILE_NAME + " TEXT NOT NULL," // 原始文件名
+                   + NotePad.Attachments.COLUMN_NAME_FILE_SIZE + " LONG NOT NULL," // 文件大小（字节）
+
+                   + "FOREIGN KEY (" + NotePad.Attachments.COLUMN_NAME_NOTE_ID + ") "
+                   + "REFERENCES " + NotePad.Notes.TABLE_NAME + "(" + NotePad.Notes._ID + ") "
+                   + "ON DELETE CASCADE"
                    + ");");
        }
 
@@ -211,14 +260,43 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
        public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
 
            // Logs that the database is being upgraded
-           Log.w(TAG, "Upgrading database from version " + oldVersion + " to "
+           Log.w(TAG, "Upgrading database from version " + oldVersion + " to " 
                    + newVersion + ", which will destroy all old data");
 
-           // Kills the table and existing data
-           db.execSQL("DROP TABLE IF EXISTS notes");
+           //新建附件表
+           if (oldVersion < 3) {
+               db.execSQL("CREATE TABLE IF NOT EXISTS " + NotePad.Attachments.TABLE_NAME + " (" 
+                       + NotePad.Attachments._ID + " INTEGER PRIMARY KEY AUTOINCREMENT," 
+                       + NotePad.Attachments.COLUMN_NAME_NOTE_ID + " INTEGER NOT NULL," 
+                       + NotePad.Attachments.COLUMN_NAME_FILE_TYPE + " TEXT NOT NULL," 
+                       + NotePad.Attachments.COLUMN_NAME_FILE_PATH + " TEXT NOT NULL," 
+                       + NotePad.Attachments.COLUMN_NAME_FILE_NAME + " TEXT NOT NULL," 
+                       + NotePad.Attachments.COLUMN_NAME_FILE_SIZE + " LONG NOT NULL,"
+                       + "FOREIGN KEY (" + NotePad.Attachments.COLUMN_NAME_NOTE_ID + ") "
+                       + "REFERENCES " + NotePad.Notes.TABLE_NAME + "(" + NotePad.Notes._ID + ") "
+                       + "ON DELETE CASCADE"
+                       + ");");
+           }
 
-           // Recreates the database with a new version
-           onCreate(db);
+           // 添加分类字段
+           if (oldVersion < 4) {
+               db.execSQL("ALTER TABLE " + NotePad.Notes.TABLE_NAME + " ADD COLUMN " 
+                       + NotePad.Notes.COLUMN_NAME_CATEGORY + " TEXT;");
+           }
+
+           // 旧版本处理（保留原有逻辑，避免删除笔记表）
+           if (oldVersion < 2) {
+               db.execSQL("DROP TABLE IF EXISTS notes");
+               onCreate(db);
+           }
+
+
+
+//           // Kills the table and existing data
+//           db.execSQL("DROP TABLE IF EXISTS notes");
+//
+//           // Recreates the database with a new version
+//           onCreate(db);
        }
    }
 
@@ -282,9 +360,24 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
                // If the incoming URI is from a live folder, chooses the live folder projection.
                qb.setProjectionMap(sLiveFolderProjectionMap);
                break;
+               //新增对附件表的查询
+           case ATTACHMENTS: // 查询所有附件
+               qb.setTables(NotePad.Attachments.TABLE_NAME);
+               qb.setProjectionMap(sAttachmentProjectionMap);
+               break;
+           case ATTACHMENT_ID: // 查询单个附件（通过ID）
+               qb.setTables(NotePad.Attachments.TABLE_NAME);
+               qb.setProjectionMap(sAttachmentProjectionMap);
+               qb.appendWhere(NotePad.Attachments._ID + "=" + uri.getPathSegments().get(1));
+               break;
+           case NOTE_ATTACHMENTS: // 查询某条笔记的所有附件
+               qb.setTables(NotePad.Attachments.TABLE_NAME);
+               qb.setProjectionMap(sAttachmentProjectionMap);
+               String noteId = uri.getPathSegments().get(1); // 从URI中获取笔记ID
+               qb.appendWhere(NotePad.Attachments.COLUMN_NAME_NOTE_ID + "=" + noteId);
+               break;
 
            default:
-               // If the URI doesn't match any of the known patterns, throw an exception.
                throw new IllegalArgumentException("Unknown URI " + uri);
        }
 
@@ -292,9 +385,13 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
        String orderBy;
        // If no sort order is specified, uses the default
        if (TextUtils.isEmpty(sortOrder)) {
-           orderBy = NotePad.Notes.DEFAULT_SORT_ORDER;
+           //附件按ID升序
+           if (sUriMatcher.match(uri) == ATTACHMENTS || sUriMatcher.match(uri) == NOTE_ATTACHMENTS) {
+               orderBy = NotePad.Attachments.DEFAULT_SORT_ORDER;
+           } else {
+               orderBy = NotePad.Notes.DEFAULT_SORT_ORDER;
+           }
        } else {
-           // otherwise, uses the incoming sort order
            orderBy = sortOrder;
        }
 
@@ -346,6 +443,13 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
            case NOTE_ID:
                return NotePad.Notes.CONTENT_ITEM_TYPE;
 
+
+               //新增附件的MIME
+           case ATTACHMENTS:
+           case NOTE_ATTACHMENTS:
+               return NotePad.Attachments.CONTENT_TYPE; // 多条附件
+           case ATTACHMENT_ID:
+               return NotePad.Attachments.CONTENT_ITEM_TYPE; // 单条附件
            // If the URI pattern doesn't match any permitted patterns, throws an exception.
            default:
                throw new IllegalArgumentException("Unknown URI " + uri);
@@ -497,73 +601,63 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
      */
     @Override
     public Uri insert(Uri uri, ContentValues initialValues) {
+        // 根据URI匹配码处理不同插入
+        SQLiteDatabase db = mOpenHelper.getReadableDatabase();
 
-        // Validates the incoming URI. Only the full provider URI is allowed for inserts.
-        if (sUriMatcher.match(uri) != NOTES) {
-            throw new IllegalArgumentException("Unknown URI " + uri);
+        switch (sUriMatcher.match(uri)) {
+            // 原有笔记插入（保留）
+            case NOTES:
+                ContentValues noteValues = (initialValues != null) ? new ContentValues(initialValues) : new ContentValues();
+                Long now = System.currentTimeMillis();
+                if (!noteValues.containsKey(NotePad.Notes.COLUMN_NAME_CREATE_DATE)) {
+                    noteValues.put(NotePad.Notes.COLUMN_NAME_CREATE_DATE, now);
+                }
+                if (!noteValues.containsKey(NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE)) {
+                    noteValues.put(NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE, now);
+                }
+                if (!noteValues.containsKey(NotePad.Notes.COLUMN_NAME_TITLE)) {
+                    Resources r = Resources.getSystem();
+                    noteValues.put(NotePad.Notes.COLUMN_NAME_TITLE, r.getString(android.R.string.untitled));
+                }
+                if (!noteValues.containsKey(NotePad.Notes.COLUMN_NAME_NOTE)) {
+                    noteValues.put(NotePad.Notes.COLUMN_NAME_NOTE, "");
+                }
+                long noteRowId = db.insert(NotePad.Notes.TABLE_NAME, NotePad.Notes.COLUMN_NAME_NOTE, noteValues);
+                if (noteRowId > 0) {
+                    Uri noteUri = ContentUris.withAppendedId(NotePad.Notes.CONTENT_ID_URI_BASE, noteRowId);
+                    getContext().getContentResolver().notifyChange(noteUri, null);
+                    return noteUri;
+                }
+                throw new SQLException("Failed to insert row into " + uri);
+
+                // 新增：附件插入（关键）
+            case ATTACHMENTS:
+                // 校验必填字段
+                if (initialValues == null) {
+                    throw new IllegalArgumentException("ContentValues cannot be null");
+                }
+                if (!initialValues.containsKey(NotePad.Attachments.COLUMN_NAME_NOTE_ID)) {
+                    throw new IllegalArgumentException("note_id is required");
+                }
+                if (!initialValues.containsKey(NotePad.Attachments.COLUMN_NAME_FILE_PATH)) {
+                    throw new IllegalArgumentException("file_path is required");
+                }
+                if (!initialValues.containsKey(NotePad.Attachments.COLUMN_NAME_FILE_TYPE)) {
+                    throw new IllegalArgumentException("file_type is required");
+                }
+
+                // 执行插入
+                long attachmentRowId = db.insert(NotePad.Attachments.TABLE_NAME, null, initialValues);
+                if (attachmentRowId > 0) {
+                    Uri attachmentUri = ContentUris.withAppendedId(NotePad.Attachments.CONTENT_URI, attachmentRowId);
+                    getContext().getContentResolver().notifyChange(attachmentUri, null);
+                    return attachmentUri;
+                }
+                throw new SQLException("Failed to insert attachment into " + uri);
+
+            default:
+                throw new IllegalArgumentException("Unknown URI " + uri);
         }
-
-        // A map to hold the new record's values.
-        ContentValues values;
-
-        // If the incoming values map is not null, uses it for the new values.
-        if (initialValues != null) {
-            values = new ContentValues(initialValues);
-
-        } else {
-            // Otherwise, create a new value map
-            values = new ContentValues();
-        }
-
-        // Gets the current system time in milliseconds
-        Long now = Long.valueOf(System.currentTimeMillis());
-
-        // If the values map doesn't contain the creation date, sets the value to the current time.
-        if (values.containsKey(NotePad.Notes.COLUMN_NAME_CREATE_DATE) == false) {
-            values.put(NotePad.Notes.COLUMN_NAME_CREATE_DATE, now);
-        }
-
-        // If the values map doesn't contain the modification date, sets the value to the current
-        // time.
-        if (values.containsKey(NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE) == false) {
-            values.put(NotePad.Notes.COLUMN_NAME_MODIFICATION_DATE, now);
-        }
-
-        // If the values map doesn't contain a title, sets the value to the default title.
-        if (values.containsKey(NotePad.Notes.COLUMN_NAME_TITLE) == false) {
-            Resources r = Resources.getSystem();
-            values.put(NotePad.Notes.COLUMN_NAME_TITLE, r.getString(android.R.string.untitled));
-        }
-
-        // If the values map doesn't contain note text, sets the value to an empty string.
-        if (values.containsKey(NotePad.Notes.COLUMN_NAME_NOTE) == false) {
-            values.put(NotePad.Notes.COLUMN_NAME_NOTE, "");
-        }
-
-        // Opens the database object in "write" mode.
-        SQLiteDatabase db = mOpenHelper.getWritableDatabase();
-
-        // Performs the insert and returns the ID of the new note.
-        long rowId = db.insert(
-            NotePad.Notes.TABLE_NAME,        // The table to insert into.
-            NotePad.Notes.COLUMN_NAME_NOTE,  // A hack, SQLite sets this column value to null
-                                             // if values is empty.
-            values                           // A map of column names, and the values to insert
-                                             // into the columns.
-        );
-
-        // If the insert succeeded, the row ID exists.
-        if (rowId > 0) {
-            // Creates a URI with the note ID pattern and the new row ID appended to it.
-            Uri noteUri = ContentUris.withAppendedId(NotePad.Notes.CONTENT_ID_URI_BASE, rowId);
-
-            // Notifies observers registered against this provider that the data changed.
-            getContext().getContentResolver().notifyChange(noteUri, null);
-            return noteUri;
-        }
-
-        // If the insert didn't succeed, then the rowID is <= 0. Throws an exception.
-        throw new SQLException("Failed to insert row into " + uri);
     }
 
     /**
@@ -629,6 +723,28 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
                     whereArgs                  // The incoming where clause values.
                 );
                 break;
+
+            // 新增：附件删除（关键）
+            case ATTACHMENTS: // 删除所有符合条件的附件
+                count = db.delete(NotePad.Attachments.TABLE_NAME, where, whereArgs);
+                // 批量删除时，需要手动删除对应的物理文件（可选，根据需求）
+                if (count > 0 && where != null) {
+                    deleteAttachmentFiles(where, whereArgs);
+                }
+                break;
+            case ATTACHMENT_ID: // 删除单个附件（通过ID）
+                String attachmentId = uri.getPathSegments().get(1);
+                finalWhere = NotePad.Attachments._ID + "=" + attachmentId;
+                if (where != null) finalWhere += " AND " + where;
+                // 删除前先获取文件路径
+                String filePath = getAttachmentFilePath(Long.parseLong(attachmentId));
+                count = db.delete(NotePad.Attachments.TABLE_NAME, finalWhere, whereArgs);
+                // 删除物理文件
+                if (count > 0 && filePath != null) {
+                    deleteFile(getContext(), filePath);
+                }
+                break;
+
 
             // If the incoming pattern is invalid, throws an exception.
             default:
@@ -723,6 +839,15 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
                                               // null if the values are in the where argument.
                 );
                 break;
+            // 新增：附件更新（可选）
+            case ATTACHMENT_ID:
+                String attachmentId = uri.getPathSegments().get(1);
+                finalWhere = NotePad.Attachments._ID + "=" + attachmentId;
+                if (where != null) finalWhere += " AND " + where;
+                count = db.update(NotePad.Attachments.TABLE_NAME, values, finalWhere, whereArgs);
+                break;
+
+
             // If the incoming pattern is invalid, throws an exception.
             default:
                 throw new IllegalArgumentException("Unknown URI " + uri);
@@ -736,6 +861,49 @@ public class NotePadProvider extends ContentProvider implements PipeDataWriter<C
 
         // Returns the number of rows updated.
         return count;
+    }
+
+    /**
+     * 辅助方法：批量删除附件对应的物理文件
+     */
+    private void deleteAttachmentFiles(String where, String[] whereArgs) {
+        Cursor cursor = getContext().getContentResolver().query(
+                NotePad.Attachments.CONTENT_URI,
+                new String[]{NotePad.Attachments.COLUMN_NAME_FILE_PATH},
+                where, whereArgs, null);
+        if (cursor != null) {
+            while (cursor.moveToNext()) {
+                String filePath = cursor.getString(0);
+                deleteFile(getContext(), filePath);
+            }
+            cursor.close();
+        }
+    }
+
+    /**
+     * 辅助方法：删除应用私有目录中的文件
+     */
+    private void deleteFile(Context context, String filePath) {
+        File file = context.getFileStreamPath(filePath);
+        if (file.exists()) {
+            file.delete();
+            Log.d(TAG, "Deleted attachment file: " + filePath);
+        }
+    }
+    /**
+     * 辅助方法：获取单个附件的文件路径
+     */
+    private String getAttachmentFilePath(long attachmentId) {
+        Cursor cursor = getContext().getContentResolver().query(
+                ContentUris.withAppendedId(NotePad.Attachments.CONTENT_URI, attachmentId),
+                new String[]{NotePad.Attachments.COLUMN_NAME_FILE_PATH},
+                null, null, null);
+        if (cursor != null && cursor.moveToFirst()) {
+            String filePath = cursor.getString(0);
+            cursor.close();
+            return filePath;
+        }
+        return null;
     }
 
     /**

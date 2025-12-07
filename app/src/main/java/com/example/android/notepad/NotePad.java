@@ -28,6 +28,7 @@ import android.provider.BaseColumns;
 public final class NotePad {
     public static final String AUTHORITY = "com.google.provider.NotePad";
 
+
     // This class cannot be instantiated
     private NotePad() {
     }
@@ -150,5 +151,45 @@ public final class NotePad {
          * <P>Type: INTEGER (long from System.curentTimeMillis())</P>
          */
         public static final String COLUMN_NAME_MODIFICATION_DATE = "modified";
+        
+        /**
+         * Column name for the note category
+         * <P>Type: TEXT</P>
+         */
+        public static final String COLUMN_NAME_CATEGORY = "category";
     }
+        //为了让笔记能够存储其他文件格式，新增表常量
+        static final class Attachments implements BaseColumns{
+            // 附件表名
+            public static final String TABLE_NAME = "attachments";
+
+            // 附件关联的笔记ID（外键）
+            public static final String COLUMN_NAME_NOTE_ID = "note_id";
+
+            // 文件类型（image/audio/video）
+            public static final String COLUMN_NAME_FILE_TYPE = "file_type";
+
+            // 文件在应用私有目录的路径
+            public static final String COLUMN_NAME_FILE_PATH = "file_path";
+
+            // 原始文件名
+            public static final String COLUMN_NAME_FILE_NAME = "file_name";
+
+            // 文件大小（单位：字节）
+            public static final String COLUMN_NAME_FILE_SIZE = "file_size";
+
+            // 内容URI（用于ContentProvider操作）
+            public static final Uri CONTENT_URI = Uri.parse("content://" + AUTHORITY+ "/attachments");
+
+            // 多条附件的MIME类型
+            public static final String CONTENT_TYPE = "vnd.android.cursor.dir/vnd.google.note.attachment";
+
+            // 单条附件的MIME类型
+            public static final String CONTENT_ITEM_TYPE = "vnd.android.cursor.item/vnd.google.note.attachment";
+
+            // 默认排序（按添加时间升序）
+            public static final String DEFAULT_SORT_ORDER = "_id ASC";
+
+        }
+
 }
