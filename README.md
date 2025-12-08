@@ -2,11 +2,11 @@
 项目来自于官方早期的数据库操作的基本教程。
 更多的解析参考[Android Sample--NotePad解析](https://blog.csdn.net/llfjfz/article/details/67638499)
 项目更新内容：
-#一、在每条记录的最后添加了时间戳
+# 一、在每条记录的最后添加了时间戳
 ![时间戳截图](images/time.png)
 
-##有关代码
-###在NotesList中添加
+## 有关代码
+### 在NotesList中添加
 //新增修改时间字段
 private static final String[] PROJECTION = new String[] {
         NotePad.Notes._ID, // 0
@@ -35,7 +35,7 @@ private static final String[] PROJECTION = new String[] {
                     TextView timeTv = (TextView) view.findViewById(R.id.note_modify_time);
                     timeTv.setText(timeStr);
                     
-  ###修改对应的布局
+  ### 修改对应的布局
      <!--添加的时间戳-->
     <TextView
         android:id="@+id/note_modify_time"
@@ -45,15 +45,15 @@ private static final String[] PROJECTION = new String[] {
         android:layout_marginLeft="10dp"
         android:textColor="#999999"
         android:textSize="12sp" />
-  #二、在顶端添加了搜索框
+  # 二、在顶端添加了搜索框
   ![搜索框](images/searching.png)
 
-  ##搜索关键词
+  ## 搜索关键词
    ![搜索词](images/search.png)
   
-  ##有关代码
-  ###创建的新文件
-  ####notes_list.xml
+  ## 有关代码
+  ### 创建的新文件
+  #### notes_list.xml
   <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout 
     xmlns:android="http://schemas.android.com/apk/res/android"
@@ -86,7 +86,7 @@ private static final String[] PROJECTION = new String[] {
         android:visibility="gone"/>
 
 </LinearLayout>
-###修改NotesList.java
+### 修改NotesList.java
 // 关键修改1：替换默认布局为带搜索框的布局
         setContentView(R.layout.notes_list);
       // 关键修改2：初始化搜索框
@@ -190,24 +190,24 @@ private static final String[] PROJECTION = new String[] {
             mAdapter.changeCursor(cursor);
         }
     }
-    ##遇到的问题
+## 遇到的问题
     在一开始进行搜索框的添加的时候，没有注意有关布局文件之间的关系，没有创建新的布局文件就直接进行搜索框的添加，导致了一开始是直接所有笔记的上方都有一个搜索框，最后又创建了布局文件notes_list.xml，解决了该问题
- #三、实现添加附件的功能
- ##添加附件的界面显示
+ # 三、实现添加附件的功能
+ ## 添加附件的界面显示
  ![添加附件](images/edit.png)
  
-##点击添加后会显示
+## 点击添加后会显示
 ![添加附件2](images/add_picture.png)
 
-##点击对应图片后添加进编辑界面的显示
+## 点击对应图片后添加进编辑界面的显示
 ![添加附件3](images/add_picture_edit.png)
 
 
- ##注意事项
+ ## 注意事项
  因为是添加了附件，所以是需要在数据库中再添加新的表，而且还需要在对原有的表增删改查的基础上，添加对新表的增删改查，添加新的映射，所以代码的修改涉及到了NotePad、NotePadProvider.
 
- ##有关代码
- ###NotePad.java
+ ## 有关代码
+ ### NotePad.java
   // 新增：附件表常量（关键）
     public static final class Attachments implements BaseColumns {
         public static final String TABLE_NAME = "attachments"; // 附件表名
@@ -222,7 +222,7 @@ private static final String[] PROJECTION = new String[] {
         public static final String DEFAULT_SORT_ORDER = "_id ASC"; // 默认排序
     }
     
- ###NotePadProvider
+ ### NotePadProvider
  // 新增：附件表的URI匹配码（关键）
     private static final int ATTACHMENTS = 4;         // 所有附件
     private static final int ATTACHMENT_ID = 5;       // 单个附件
@@ -240,7 +240,7 @@ private static final String[] PROJECTION = new String[] {
         sAttachmentProjectionMap.put(NotePad.Attachments.COLUMN_NAME_FILE_NAME, NotePad.Attachments.COLUMN_NAME_FILE_NAME);
         sAttachmentProjectionMap.put(NotePad.Attachments.COLUMN_NAME_FILE_SIZE, NotePad.Attachments.COLUMN_NAME_FILE_SIZE);
 
-###NoteEditor
+### NoteEditor
 // 新增：附件相关常量和变量
     private static final int REQUEST_SELECT_FILE = 100; // 文件选择请求码
     private static final String[] SUPPORTED_MIME_TYPES = {
@@ -416,29 +416,29 @@ private static final String[] PROJECTION = new String[] {
         return view;
     }
 
-##有关问题
+## 有关问题
 因为图片的大小不能规范确定，所以最初在运行的时候会出现因为内存溢出而导致的只要点击含有图片的笔记就会闪退的情况，后面直接用对应图片名字来代替直接在文件中显示图片
 
-#四、笔记分类
-##有关界面
+# 四、笔记分类
+## 有关界面
 ![分类](images/target.png)
 
-##有关笔记显示
+## 有关笔记显示
 ![分类1](images/time.png)
 
-##按照分类搜索笔记
+## 按照分类搜索笔记
 ![分类2](images/search_by_t.png)
 
-##按照分类和对应关键词搜索笔记
+## 按照分类和对应关键词搜索笔记
 ![分类3](images/search_by_t_t.png)
 
-##添加新的分类
+## 添加新的分类
 ![分类4](images/new_t.png)
 
-##添加成功
+## 添加成功
 ![分类5](images/new_tt.png)
-##有关代码
-###NoteList
+## 有关代码
+### NoteList
   private void initCategoryFilter() {
         mCategorySpinner = (Spinner) findViewById(R.id.category_filter_spinner);
         // 初始化SharedPreferences
@@ -484,5 +484,5 @@ private static final String[] PROJECTION = new String[] {
                     } else {
                         categoryTv.setVisibility(View.GONE);
                     }
-##有关问题
+## 有关问题
 一开始的分类只能够在现有的几个之中进行分类，后面又添加了添加分类的功能。
